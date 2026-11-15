@@ -11,14 +11,36 @@ const present = f => String(f).replace(/\s*\(.*?\)/g, '');
 const verbPool = () => P.ALL.filter(w => w.pos === 'verb' && w.conj && !w.imp && w.sa && w.conj.every(f => f && f !== '—'));
 const snapPool = () => P.ALL.filter(w => w.forms && w.forms.d && w.forms.p && w.forms.dp && !/[(—]/.test(w.forms.p) && w.forms.dp !== '—' && w.g !== 'pl' && w.ro !== 'bani')
   .map(w => ({ w, bare: w.ro, i: w.forms.i, d: clean(w.forms.d), p: clean(w.forms.p), dp: clean(w.forms.dp) }));
-function recentPool() {
-  const t = P.today(), S = P.S;
-  const recent = P.ALL.filter(w => { const p = S.prog[w.id]; return p && p.first && P.dayDiff(p.first, t) <= 10; });
-  if (recent.length >= 12) return recent;
-  const seen = P.ALL.filter(w => S.prog[w.id]);
-  return seen.length >= 12 ? seen : P.ALL.slice(0, 160);
+// Games and quizzes only ever use words you have studied (learning) or marked as known (mastered).
+const isSeen = w => !!P.S.prog[w.id];
+const seenWords = () => P.ALL.filter(isSeen);
+const seenVerbs = () => verbPool().filter(isSeen);
+const seenNouns = () => snapPool().filter(n => isSeen(n.w));
+function sentencePool(words, min, max) {
+  const out = [], had = new Set();
+  words.forEach(w => (w.ex || []).forEach(e => { const n = e[0].split(/\s+/).length; if (n >= min && n <= max && !/[—\/…]/.test(e[0]) && !had.has(e[0])) { had.add(e[0]); out.push(e); } }));
+  return out;
 }
-const withBackup = (list, backup, min) => list.length >= min ? list : uniq(list.concat(shuffle(backup))).slice(0, Math.max(min, list.length));
+function bridgePool() {                                          // sentences from your own cards, the să ones first
+  const all = sentencePool(seenWords(), 3, 8), sa = all.filter(e => /(^|\s)să(\s|-)/i.test(e[0]));
+  return shuffle(sa).concat(shuffle(all.filter(e => !sa.includes(e)))).slice(0, 8);
+}
+const blitzPool = () => seenWords().filter(w => String(w.en).length <= 26);
+function recentPool() {
+  const t = P.today(), S = P.S, seen = seenWords();
+  const recent = seen.filter(w => { const p = S.prog[w.id]; return p.first && P.dayDiff(p.first, t) <= 10; });
+  return recent.length >= 12 ? recent : seen;
+}
+function gameReq(k) {
+  const need = (have, min, what) => have >= min ? '' : '🔒 Learn ' + (min - have) + ' more ' + what + (min - have === 1 ? '' : 's') + ' to unlock';
+  if (k === 'gBridge') return need(bridgePool().length, 3, 'word');
+  if (k === 'gSnap') return need(seenNouns().length, 4, 'noun');
+  if (k === 'gRoulette') return need(seenVerbs().length, 3, 'verb');
+  if (k === 'gBlitz') return need(blitzPool().length, 6, 'word');
+  if (k === 'boss') return need(seenWords().length, 10, 'word');
+  return '';
+}
+P.gameReq = gameReq;
 
 /* ---------- question factories ---------- */
 function qSnap(n, mode) {
@@ -110,9 +132,10 @@ function countdown(sec, onEnd, sel) {
 
 /* 1. „Să” Bridge Builder */
 A.gBridge = () => {
-  clearTimers(); const list = pick(G.bridge, 8); let n = 0, score = 0, combo = 0, lives = 3, cd;
+  const lock = gameReq('gBridge'); if (lock) return toast(lock);
+  clearTimers(); const list = shuffle(bridgePool()); let n = 0, score = 0, combo = 0, lives = 3, cd;
   const round = () => {
-    if (n >= list.length || lives <= 0) return endGame('gBridge', '„Să” Bridge Builder', score, lives > 0 ? 'All bridges built. Every sentence used the să pattern.' : 'Out of time. Remember: verb + să + conjugated verb.', 'gBridge');
+    if (n >= list.length || lives <= 0) return endGame('gBridge', '„Să” Bridge Builder', score, lives > 0 ? 'All bridges built, using sentences from your own cards.' : 'Out of time. These sentences come from cards you have studied.', 'gBridge');
     const q = qBuild(list[n][0], list[n][1]); q.tag = `Bridge ${n + 1} of ${list.length}`;
     buildUI(q, { head: () => topBar('„Să” Bridge Builder', hud(score, combo, lives)) + '<div class="timer mb-3"><i id="tm"></i></div>',
       onWrong: () => { combo = 0; },
@@ -124,7 +147,8 @@ A.gBridge = () => {
 
 /* 2. Article & Plural Snap */
 A.gSnap = () => {
-  clearTimers(); const pool = shuffle(snapPool()); let n = 0, score = 0, combo = 0, lives = 3, busy = false, cur;
+  const lock = gameReq('gSnap'); if (lock) return toast(lock);
+  clearTimers(); const pool = shuffle(seenNouns()); let n = 0, score = 0, combo = 0, lives = 3, busy = false, cur;
   const total = Math.min(15, pool.length);
   const round = () => {
     if (n >= total || lives <= 0) return endGame('gSnap', 'Article & Plural Snap', score, lives > 0 ? 'You caught them all.' : 'Three nouns hit the floor. The rebels need another round.', 'gSnap');
@@ -145,7 +169,8 @@ A.gSnap = () => {
 
 /* 3. Verb Ending Roulette */
 A.gRoulette = () => {
-  clearTimers(); const all = verbPool(), irr = all.filter(v => v.tag === 'irr'); let n = 0, score = 0, combo = 0, right = 0, busy = false, cur, cd; const total = 12;
+  const lock = gameReq('gRoulette'); if (lock) return toast(lock);
+  clearTimers(); const all = seenVerbs(), irr = all.filter(v => v.tag === 'irr'); let n = 0, score = 0, combo = 0, right = 0, busy = false, cur, cd; const total = 12;
   const PR = ['EU', 'TU', 'EL / EA', 'NOI', 'VOI', 'EI / ELE', 'EL / EA SĂ…'];
   const round = () => {
     if (n >= total) return endGame('gRoulette', 'Verb Ending Roulette', score, `${right} of ${total} correct.`, 'gRoulette');
@@ -168,11 +193,12 @@ A.gRoulette = () => {
 
 /* 4. 60-Second Blitz Match */
 A.gBlitz = () => {
-  clearTimers(); const seen = P.ALL.filter(w => P.S.prog[w.id]), src = seen.length >= 30 ? seen : P.ALL.slice(0, 300);
+  const lock = gameReq('gBlitz'); if (lock) return toast(lock);
+  clearTimers(); const src = blitzPool();
   let score = 0, combo = 0, sel = null, left = 0, tilesData = [], over = false;
   const board = () => {
     const ws = [], ro = new Set(), en = new Set();
-    for (const w of shuffle(src)) { if (ws.length === 6) break; if (ro.has(w.ro) || en.has(w.en) || String(w.en).length > 26) continue; ro.add(w.ro); en.add(w.en); ws.push(w); }
+    for (const w of shuffle(src)) { if (ws.length === 6) break; if (ro.has(w.ro) || en.has(w.en)) continue; ro.add(w.ro); en.add(w.en); ws.push(w); }
     tilesData = shuffle(ws.map(w => ({ id: w.id, side: 'ro', t: title(w) })).concat(ws.map(w => ({ id: w.id, side: 'en', t: w.en })))); left = ws.length; sel = null;
     $('#grid').innerHTML = tilesData.map((t, k) => `<button class="mt-tile ${t.side}" data-act="mtPick" data-k="${k}">${esc(t.t)}</button>`).join('');
   };
@@ -196,22 +222,22 @@ A.gBlitz = () => {
 
 /* ---------- Boss Quiz ---------- */
 A.boss = () => {
-  clearTimers(); const S = P.S, pool = recentPool();
-  const vp = verbPool(), verbs = withBackup(pool.filter(w => vp.includes(w)), vp.filter(v => v.tag === 'irr'), 8);
-  const nouns = withBackup(snapPool().filter(n => pool.includes(n.w)), snapPool(), 5);
+  const lock = gameReq('boss'); if (lock) return toast(lock);
+  clearTimers(); const S = P.S, pool = recentPool(), all = seenWords(), inPool = new Set(pool.map(w => w.id));
+  const prefer = (list, id) => { const r = list.filter(x => inPool.has(id(x))); return r.length >= 3 ? r : list; };   // recent words first, older learned words as backup
+  const verbs = prefer(seenVerbs(), v => v.id), nouns = prefer(seenNouns(), n => n.w.id);
   const flips = verbs.filter(v => v.sa !== 'să ' + present(v.conj[2]));
-  const sents = shuffle(uniq(pool.filter(w => w.ex).map(w => w.ex[0]).filter(e => { const n = e[0].split(/\s+/).length; return n >= 3 && n <= 7 && !/[—/]/.test(e[0]); }).map(e => e.join('|')))).map(s => s.split('|'));
-  const build = sents.concat(shuffle(G.bridge)).slice(0, 3);
+  const sents = sentencePool(pool, 3, 7), distract = pool.length >= 8 ? pool : all;
   let qs = [];
-  pick(flips.length >= 3 ? flips : verbs, 3).forEach(v => qs.push(Object.assign(qVerb(v, 6), { tag: 'The să flip' })));
+  pick(flips.length ? flips : verbs, 3).forEach(v => qs.push(Object.assign(qVerb(v, 6), { tag: 'The să flip' })));
   pick(verbs, 3).forEach(v => qs.push(qVerb(v, rnd(6))));
   pick(nouns, 5).forEach(n => qs.push(qSnap(n)));
-  pick(pool, 3).forEach(w => qs.push(qMeaning(w, pool.length > 8 ? pool : P.ALL)));
-  build.forEach(b => qs.push(qBuild(b[0], b[1])));
-  pick(pool, 3).forEach(w => qs.push(qMeaning(w, pool.length > 8 ? pool : P.ALL, P.canSpeak())));
+  pick(sents, 3).forEach(b => qs.push(qBuild(b[0], b[1])));
+  const rest = shuffle(pool);                                    // fill up to 20 with meaning and listening questions
+  for (let i = 0; qs.length < 20 && i < rest.length * 3; i++) qs.push(qMeaning(rest[i % rest.length], distract, i % 3 === 2 && P.canSpeak()));
   qs = shuffle(qs).slice(0, 20);
   stage(topBar('Boss Quiz') + `<div class="glass flash front"><div style="font-size:56px">⚔️</div><div class="text-3xl font-extrabold gt mt-2">Boss Quiz</div>
-    <div class="text-slate-300 mt-2 leading-snug">${qs.length} questions on your last 10 days: să forms, articles and plurals, sentence building and listening.</div>
+    <div class="text-slate-300 mt-2 leading-snug">${qs.length} questions on the words you have learned, the last 10 days first: verb forms, articles and plurals, sentence building and listening.</div>
     <div class="flex gap-2 mt-4 flex-wrap justify-center"><span class="chip">80% to win</span><span class="chip mastered">${ic('trophy')} trophy</span><span class="chip new">${ic('shield')} Streak Freeze</span><span class="chip learning">+200 XP</span></div></div>
     <button class="btn btn-gold btn-big mt-3" data-act="bossGo">${ic('swords')} Fight!</button>`);
   A.bossGo = () => runQuiz('Boss Quiz', qs, (right, total) => {
@@ -224,6 +250,17 @@ A.boss = () => {
       <div class="text-sm text-slate-300 mt-2">${win ? 'Trophy unlocked, +1 Streak Freeze, +200 XP.' : 'You need 80%. Review the missed forms and try again whenever you like.'}</div></div>
       <div class="grid grid-cols-2 gap-2 mt-3"><button class="btn" data-act="closeStage">Close</button><button class="btn btn-pri" data-act="boss">${ic('rotate-ccw')} ${win ? 'Again' : 'Rematch'}</button></div>`);
   });
+};
+
+/* ---------- quiz on a given list of words ---------- */
+P.quizWords = (name, words, onEnd) => {
+  const vp = seenVerbs(), np = seenNouns(), all = seenWords(), distract = all.length >= 8 ? all : words, qs = [];
+  shuffle(words).slice(0, 20).forEach((w, i) => {
+    const n = np.find(x => x.w === w);
+    if (vp.includes(w) && i % 2) qs.push(qVerb(w)); else if (n && i % 2) qs.push(qSnap(n));
+    else qs.push(qMeaning(w, distract, i % 4 === 3 && P.canSpeak()));
+  });
+  runQuiz(name, qs, onEnd);
 };
 
 /* ---------- Course Book Companion ---------- */

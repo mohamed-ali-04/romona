@@ -11,7 +11,7 @@ const iso = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.get
 const today = () => iso(new Date());
 const addDays = (s, n) => { const d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return iso(d); };
 const dayDiff = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5);
-const FALLBACK = { x: '✕', plus: '+', 'volume-2': '🔊', flame: '🔥', shield: '🛡', trophy: '🏆', pencil: '✎', 'chevron-right': '›', check: '✓', 'trash-2': '🗑', play: '▶', zap: '⚡', star: '★', swords: '⚔', bell: '🔔' };
+const FALLBACK = { x: '✕', plus: '+', settings: '⚙', map: '🗺', 'volume-2': '🔊', flame: '🔥', shield: '🛡', trophy: '🏆', pencil: '✎', 'chevron-right': '›', check: '✓', 'trash-2': '🗑', play: '▶', zap: '⚡', star: '★', swords: '⚔', bell: '🔔' };
 const ic = n => `<i data-lucide="${n}"></i>`;
 function icons() {
   if (window.lucide && window.lucide.createIcons) return window.lucide.createIcons();
@@ -27,7 +27,7 @@ const plug = n => { if (!native) return null; try { return (Cap.Plugins && Cap.P
 const KEY = 'ro1000.v1';
 const defaults = () => ({ v: 1, intervals: [1, 2, 4, 8, 16, 30], daily: 15, prog: {}, custom: [], over: {}, nextId: 0, xp: 0, streak: 0, best: 0, freezes: 1,
   last: null, studyDays: 0, intro: { d: null, n: 0 }, bossDue: false, trophies: 0, bossLog: [], remind: { on: false, h: 19, m: 0 }, rate: 0.9, auto: true,
-  hackIdx: 0, lessonsDone: {}, hi: {}, packs: [] });
+  hackIdx: 0, lessonsDone: {}, hi: {}, packs: [], focus: null, day: { d: null, ids: [] }, log: {} });
 let S = defaults();
 function hydrate(raw) { try { const o = typeof raw === 'string' ? JSON.parse(raw) : raw; if (o && typeof o === 'object') S = Object.assign(defaults(), o); } catch (e) { /* keep defaults */ } }
 function save() {
@@ -53,7 +53,8 @@ function level() {
   const next = LEVELS[i + 1];
   return { i, name: LEVELS[i][1], next: next ? next[1] : null, pct: next ? Math.round((S.xp - LEVELS[i][0]) / (next[0] - LEVELS[i][0]) * 100) : 100, need: next ? next[0] - S.xp : 0 };
 }
-function gain(n) { const before = level().i; S.xp += n; const lv = level(); if (lv.i > before) { toast('Level up! You are now ' + lv.name + ' 🎉'); boom(); } }
+const dayLog = () => { const t = today(); return S.log[t] || (S.log[t] = { c: 0, n: 0, g: 0, f: 0, k: 0, x: 0 }); };
+function gain(n) { const before = level().i; S.xp += n; dayLog().x += n; const lv = level(); if (lv.i > before) { toast('Level up! You are now ' + lv.name + ' 🎉'); boom(); } }
 const liveStreak = () => (S.last && dayDiff(S.last, today()) - 1 > S.freezes) ? 0 : S.streak;
 function markStudyDay() {
   const t = today(); if (S.last === t) return;
@@ -65,6 +66,7 @@ function markStudyDay() {
   } else S.streak = 1;
   S.best = Math.max(S.best, S.streak); S.last = t; S.studyDays++;
   if (S.studyDays % 10 === 0) S.bossDue = true;
+  const old = addDays(t, -180); Object.keys(S.log).forEach(d => { if (d < old) delete S.log[d]; });   // keep six months of history
 }
 
 /* ---------- small UI helpers ---------- */
@@ -103,16 +105,19 @@ function webSpeak(text) {
       if (!plain) setTimeout(() => { if (id === speakSeq) say(true); }, 150);
       else if (!warned) { warned = true; toast('Speech is stuck. Close the app completely and open it again.'); }
     };
-    u.onstart = u.onend = () => { settled = true; };
-    u.onerror = e => { settled = true; if (e && e.error !== 'interrupted' && e.error !== 'canceled') retry(); };
+    u.onstart = () => { settled = true; slog('start'); };
+    u.onend = () => { settled = true; slog('end'); };
+    u.onerror = e => { settled = true; slog('error: ' + (e && e.error)); if (e && e.error !== 'interrupted' && e.error !== 'canceled') retry(); };
+    slog('speak "' + text.slice(0, 18) + '"' + (plain ? ' (no voice set)' : roVoice ? ' voice=' + roVoice.name : ' (no ro voice found)'));
     window.__roUtterance = u;                                  // keep a reference: Safari drops utterances that are garbage-collected
     try { if (ss.paused) ss.resume(); ss.speak(u); } catch (e) { /* handled by the watchdog */ }
-    setTimeout(() => { if (!settled) retry(); }, 2000);        // iOS sometimes swallows an utterance without any event
+    setTimeout(() => { if (!settled && !ss.speaking) { slog('no start event after 2s'); retry(); } }, 2000);   // iOS sometimes swallows an utterance
   };
   // iOS drops an utterance that is queued in the same tick as cancel(), so leave a gap after cancelling
   if (ss.speaking || ss.pending) { ss.cancel(); setTimeout(() => say(false), 120); } else say(false);
 }
 let roVoice = null, speakSeq = 0;
+const slog = m => { const L = window.RO_SPEECH_LOG = window.RO_SPEECH_LOG || []; L.push(new Date().toTimeString().slice(0, 8) + ' ' + m); if (L.length > 12) L.shift(); };
 function pickVoice() {
   const ss = window.speechSynthesis; if (!ss) return;
   const v = ss.getVoices();
@@ -202,7 +207,7 @@ function vHome() {
   const pc = n => (n / c.total * 100).toFixed(1);
   const nextBoss = 10 - (S.studyDays % 10);
   return `<div class="flex items-center justify-between mb-3"><div><h1 class="text-2xl font-extrabold gt">Română 1000</h1><div class="tricolor mt-1"></div></div>
-    <div class="chip">${ic('zap')} ${S.xp} XP</div></div>
+    <div class="flex items-center gap-2"><div class="chip">${ic('zap')} ${S.xp} XP</div><button class="icon-btn" data-act="tab" data-tab="settings" aria-label="Settings">${ic('settings')}</button></div></div>
   <div class="hero"><img src="${photoURL(ph.id)}" alt="" onerror="this.remove()"><div class="shade"></div>
     <div class="credit">${esc(ph.place)} · ${esc(ph.by)} / Unsplash</div>
     <div class="in"><div class="text-xs uppercase tracking-wide font-bold opacity-70">Ziua ${S.studyDays + (S.last === t ? 0 : 1)} · ${lv.name}</div>
@@ -212,6 +217,7 @@ function vHome() {
     <div class="stat"><b>${ic('shield')} ${S.freezes}</b><small>freezes</small></div><div class="stat"><b>${ic('trophy')} ${S.trophies}</b><small>boss wins</small></div></div>
   <button class="btn btn-pri btn-big mt-3" data-act="study">${ic('play')} ${todo ? 'Start today\'s session' : 'Learn 5 extra words'}</button>
   ${S.bossDue ? `<button class="btn btn-gold btn-big mt-3 pulse" data-act="boss">${ic('swords')} Boss Quiz is ready! Day ${S.studyDays}</button>` : ''}
+  ${window.APP && window.APP.homeExtra ? window.APP.homeExtra() : ''}
   <div class="glass p-4 mt-3"><div class="flex justify-between text-sm font-bold"><span>${lv.name}</span><span class="muted">${lv.next ? lv.need + ' XP to ' + lv.next : 'Top rank reached'}</span></div>
     <div class="bar mt-2"><i class="f1" style="width:${lv.pct}%"></i></div>
     <div class="flex justify-between text-sm font-bold mt-4"><span>Your 1,000 words</span><span class="muted">${c.mastered} mastered</span></div>
@@ -241,13 +247,14 @@ function vDeck() {
   <div id="list" class="mt-3">${deckList()}</div>`;
 }
 function vArcade() {
-  const g = (cls, act, icn, name, sub) => `<button class="glass game-card ${cls}" data-act="${act}"><span class="ic">${ic(icn)}</span><b>${name}</b><small>${sub}</small>${S.hi[act] ? `<small>Best: ${S.hi[act]}</small>` : ''}</button>`;
+  const g = (cls, act, icn, name, sub) => `<button class="glass game-card ${cls}" data-act="${act}"><span class="ic">${ic(icn)}</span><b>${name}</b><small>${(window.APP.gameReq && window.APP.gameReq(act)) || sub}</small>${S.hi[act] ? `<small>Best: ${S.hi[act]}</small>` : ''}</button>`;
   return `<h1 class="text-2xl font-extrabold mb-3">Arcade</h1><div class="grid grid-cols-2 gap-3">
     ${g('gc1', 'gBridge', 'git-merge', '„Să” Bridge Builder', 'Build the sentence before the timer runs out')}
     ${g('gc2', 'gSnap', 'arrow-down-to-line', 'Article & Plural Snap', 'Catch the falling noun with the right form')}
     ${g('gc3', 'gRoulette', 'dices', 'Verb Ending Roulette', 'Pronoun + verb. Pick the right ending')}
     ${g('gc4', 'gBlitz', 'timer', '60-Second Blitz Match', 'Match words to meanings. Chase the combo')}</div>
   <button class="btn btn-gold btn-big mt-4" data-act="boss">${ic('swords')} Launch a Boss Quiz</button>
+  <div class="text-xs muted mt-2 text-center">Games and the Boss Quiz only use words you have studied or marked as known.</div>
   <div class="text-xs muted mt-2 text-center">20 questions · 80% wins a trophy, a Streak Freeze and 200 XP</div>`;
 }
 function vBook() {
@@ -274,7 +281,7 @@ function vSettings() {
   <div class="glass p-4 mt-3"><div class="flex justify-between"><b>Speech speed</b><b class="text-amber-300" id="rateV">${S.rate.toFixed(2)}×</b></div>
     <input type="range" min="0.5" max="1.3" step="0.05" value="${S.rate}" data-inp="rate" class="mt-3">
     <div class="flex items-center justify-between mt-3"><span class="text-sm">Say the word when a card is revealed</span><button class="switch ${S.auto ? 'on' : ''}" data-act="auto" aria-label="Toggle auto speech"></button></div>
-    <button class="btn btn-sm mt-3" data-act="speak" data-say="Bună ziua! Ce mai faci?">${ic('volume-2')} Test voice</button></div>
+    <button class="btn btn-sm mt-3" data-act="speak" data-say="Bună ziua! Ce mai faci?">${ic('volume-2')} Test voice</button> <button class="btn btn-sm mt-3" data-act="voiceCheck">${ic('search')} Voice check</button></div>
   <div class="glass p-4 mt-3"><b>Words &amp; backup</b>
     <div class="grid grid-cols-2 gap-2 mt-3"><button class="btn btn-cyan btn-sm" data-act="pack">${ic('package-plus')} Import pack</button><button class="btn btn-sm" data-act="importFile">${ic('upload')} Import file</button>
       <button class="btn btn-sm" data-act="exportXlsx">${ic('sheet')} Export Excel</button><button class="btn btn-sm" data-act="exportCsv">${ic('file-text')} Export CSV</button>
@@ -295,14 +302,18 @@ function go(t) { tab = t; render(); window.scrollTo(0, 0); sentinel(); }
 
 /* ---------- study session ---------- */
 let ses = null;
-const freshPool = () => ALL.filter(w => !S.prog[w.id]).sort((a, b) => (b.custom ? 1 : 0) - (a.custom ? 1 : 0) || a.id - b.id);
-function startStudy() {
+const inFocus = w => S.focus != null && !!CATS[S.focus] && w.id >= CATS[S.focus][0] && w.id <= CATS[S.focus][1];
+// new words come in this order: your own words, then the module you chose as current, then by frequency
+const freshPool = () => ALL.filter(w => !S.prog[w.id]).sort((a, b) => (b.custom ? 1 : 0) - (a.custom ? 1 : 0) || (inFocus(b) ? 1 : 0) - (inFocus(a) ? 1 : 0) || a.id - b.id);
+function startStudy(opt) {
   const t = today(); if (S.intro.d !== t) S.intro = { d: t, n: 0 };
-  const due = shuffle(ALL.filter(w => isDue(w, t)));
+  const range = opt && Array.isArray(opt.range) ? opt.range : null, inRange = w => !range || (w.id >= range[0] && w.id <= range[1]);
+  const due = shuffle(ALL.filter(w => isDue(w, t) && inRange(w)));
   let quota = Math.max(0, S.daily - S.intro.n);
   if (!due.length && !quota) quota = 5;                       // bonus round once the daily target is met
-  const fresh = freshPool().slice(0, quota);
-  if (!due.length && !fresh.length) return toast('Nothing left to study. You have seen every word!');
+  if (range) quota = S.daily;                                 // a unit you picked yourself is not held back by the daily target
+  const fresh = freshPool().filter(inRange).slice(0, quota);
+  if (!due.length && !fresh.length) return toast(range ? 'Nothing new or due in this unit.' : 'Nothing left to study. You have seen every word!');
   const a = due.map(w => ({ id: w.id })), b = fresh.map(w => ({ id: w.id, isNew: 1 })), q = [];
   while (a.length || b.length) { q.push(...a.splice(0, 2)); if (b.length) q.push(b.shift()); }
   ses = { q, total: q.length, done: 0, graded: 0, nextHack: 8 + rnd(3), got: 0, forgot: 0, known: 0, xp0: S.xp };
@@ -335,6 +346,9 @@ function grade(k) {
   if (!ses || !ses.q.length) return;
   const it = ses.q.shift(), w = BY[it.id], t = today(); let p = S.prog[w.id];
   markStudyDay();
+  if (S.day.d !== t) S.day = { d: t, ids: [] };
+  if (!S.day.ids.includes(w.id)) S.day.ids.push(w.id);        // feeds “Revise today's words”
+  if (!it.again) { const L = dayLog(); L.c++; if (!p && k !== 'know') L.n++; L[k === 'know' ? 'k' : k === 'got' ? 'g' : 'f']++; }
   if (k === 'know') {
     S.prog[w.id] = { st: 'mastered', step: S.intervals.length, due: null, lapses: p ? p.lapses : 0, first: p ? p.first : t, bypass: 1 };
     gain(15); ses.known++; ses.done++;
@@ -377,6 +391,7 @@ function finish() {
     <div class="flex gap-2 mt-4 flex-wrap justify-center"><span class="chip mastered">${s.got} got it</span><span class="chip irr">${s.forgot} forgotten, then recalled</span><span class="chip new">${s.known} already known</span></div>
     <div class="text-xl font-bold mt-5"><span class="flame">${ic('flame')}</span> ${S.streak}-day streak</div>
     ${S.bossDue ? '<div class="callout mt-4">Day ' + S.studyDays + ': the Boss Quiz is unlocked on your home screen.</div>' : ''}</div>
+    <button class="btn btn-cyan btn-big mt-3" data-act="revise">${ic('rotate-ccw')} Revise today's words</button>
     <button class="btn btn-pri btn-big mt-3" data-act="closeStage">Done</button>`);
 }
 const hackHTML = k => `<div class="hack"><div class="chip">${ic(k.icon)} Grammar Hack · 20 seconds</div><h2 class="text-2xl font-extrabold mt-3 leading-tight">${esc(k.title)}</h2>
@@ -573,14 +588,18 @@ window.addEventListener('popstate', () => {
 document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
 
 window.APP = { get S() { return S; }, get ALL() { return ALL; }, get BY() { return BY; }, G, A, $, esc, rnd, shuffle, ic, spk, speak, canSpeak, stage, topBar, closeStage, modal, closeModal,
-  toast, boom, gain, save, later, every, clearTimers, today, dayDiff, title, status, render, hackHTML };
+  toast, boom, gain, save, later, every, clearTimers, today, dayDiff, title, status, render, hackHTML,
+  CATS, VIEWS, addDays, cardBack, startStudy, go, browse: i => { deck.cat = i; deck.f = 'all'; deck.q = ''; deck.n = 60; go('deck'); } };
 
 /* ---------- boot ---------- */
 async function boot() {
   hydrate(localStorage.getItem(KEY));
   const P = plug('Preferences');
   if (P && !localStorage.getItem(KEY)) { try { const r = await P.get({ key: KEY }); if (r && r.value) hydrate(r.value); } catch (e) { /* first run */ } }
-  rebuild(); render(); sentinel();
+  rebuild();
+  if (!S.day || S.day.d !== today()) { const t = today(); S.day = { d: t, ids: ALL.filter(w => S.prog[w.id] && S.prog[w.id].first === t).map(w => w.id) }; }
+  if (!S.log || typeof S.log !== 'object') S.log = {};
+  render(); sentinel();
   if (S.remind.on) scheduleReminder();
   if (window.speechSynthesis) window.speechSynthesis.getVoices();
 }
