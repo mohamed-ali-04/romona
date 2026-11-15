@@ -93,19 +93,37 @@ function webSpeak(text) {
   const ss = window.speechSynthesis;
   if (!ss || !window.SpeechSynthesisUtterance) { if (!warned) { warned = true; toast('No speech engine found on this device'); } return; }
   if (!roVoice) pickVoice();                                   // iOS fills the voice list late
-  if (ss.speaking || ss.pending) ss.cancel();
-  const u = new SpeechSynthesisUtterance(text); u.lang = 'ro-RO'; u.rate = S.rate; u.pitch = 1; u.volume = 1;
-  if (roVoice) u.voice = roVoice;
-  window.__roUtterance = u;                                    // keep a reference: Safari drops utterances that are garbage-collected
-  ss.speak(u); if (ss.paused) ss.resume();
+  const say = plain => {
+    const u = new SpeechSynthesisUtterance(text), id = ++speakSeq; let settled = false;
+    u.lang = 'ro-RO'; u.rate = S.rate; u.pitch = 1; u.volume = 1;
+    if (roVoice && !plain) u.voice = roVoice;
+    const retry = () => {                                      // second try: language only, no explicit voice object
+      if (id !== speakSeq) return;
+      ss.cancel();
+      if (!plain) setTimeout(() => { if (id === speakSeq) say(true); }, 150);
+      else if (!warned) { warned = true; toast('Speech is stuck. Close the app completely and open it again.'); }
+    };
+    u.onstart = u.onend = () => { settled = true; };
+    u.onerror = e => { settled = true; if (e && e.error !== 'interrupted' && e.error !== 'canceled') retry(); };
+    window.__roUtterance = u;                                  // keep a reference: Safari drops utterances that are garbage-collected
+    try { if (ss.paused) ss.resume(); ss.speak(u); } catch (e) { /* handled by the watchdog */ }
+    setTimeout(() => { if (!settled) retry(); }, 2000);        // iOS sometimes swallows an utterance without any event
+  };
+  // iOS drops an utterance that is queued in the same tick as cancel(), so leave a gap after cancelling
+  if (ss.speaking || ss.pending) { ss.cancel(); setTimeout(() => say(false), 120); } else say(false);
 }
-let roVoice = null;
+let roVoice = null, speakSeq = 0;
 function pickVoice() {
   const ss = window.speechSynthesis; if (!ss) return;
   const v = ss.getVoices();
   roVoice = v.find(x => /^ro[-_]RO$/i.test(x.lang) && x.localService) || v.find(x => /^ro[-_]RO$/i.test(x.lang)) || v.find(x => /^ro/i.test(x.lang)) || null;
 }
-if (window.speechSynthesis) { pickVoice(); if (window.speechSynthesis.addEventListener) window.speechSynthesis.addEventListener('voiceschanged', pickVoice); }
+if (window.speechSynthesis) {
+  pickVoice(); if (window.speechSynthesis.addEventListener) window.speechSynthesis.addEventListener('voiceschanged', pickVoice);
+  // Leaving the app mid-sentence can leave the iOS speech queue jammed: clear it whenever the app is hidden or shown again.
+  const unjam = () => { try { speakSeq++; window.speechSynthesis.cancel(); pickVoice(); } catch (e) { /* ignore */ } };
+  document.addEventListener('visibilitychange', unjam); window.addEventListener('pageshow', unjam);
+}
 function speak(text) {
   text = cleanSpeak(text); if (!text) return;
   const T = plug('TextToSpeech');
