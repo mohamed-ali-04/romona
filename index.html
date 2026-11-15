@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#070b1a">
+<title>Română 1000</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Română 1000">
+<meta name="format-detection" content="telephone=no">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/tailwind.css">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/pwa.css">
+</head>
+<body>
+<div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div>
+
+<div id="app" class="mx-auto max-w-md relative">
+  <main id="view"></main>
+</div>
+
+<button id="fab" class="fab hidden" data-act="addWord" aria-label="Add a word"><i data-lucide="plus"></i><span class="fab-fallback">+</span></button>
+
+<nav id="nav" class="nav">
+  <button data-act="tab" data-tab="home"><i data-lucide="house"></i><span>Azi</span></button>
+  <button data-act="tab" data-tab="deck"><i data-lucide="layers"></i><span>Cuvinte</span></button>
+  <button data-act="tab" data-tab="arcade"><i data-lucide="gamepad-2"></i><span>Arcade</span></button>
+  <button data-act="tab" data-tab="book"><i data-lucide="book-open"></i><span>Carte</span></button>
+  <button data-act="tab" data-tab="settings"><i data-lucide="settings"></i><span>Setări</span></button>
+</nav>
+
+<div id="stage" class="stage hidden"></div>
+<div id="modal" class="modal hidden"></div>
+<div id="toast" class="toast"></div>
+<input type="file" id="file" class="hidden" accept=".json,.csv,.xlsx,.xls,application/json,text/csv">
+
+<!-- UI libraries come from a CDN and are cached by sw.js after the first visit. The app still works without them. -->
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" crossorigin="anonymous"></script>
+<script src="js/data-words.js"></script>
+<script src="js/data-grammar.js"></script>
+<script src="js/app.js"></script>
+<script src="js/play.js"></script>
+<script src="js/pwa.js"></script>
+</body>
+</html>

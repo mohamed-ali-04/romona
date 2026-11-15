@@ -1,0 +1,12 @@
+/* iPhone web app additions. app.css already pads the top and bottom with env(safe-area-inset-*). */
+html{height:100%;-webkit-text-size-adjust:100%}
+body{min-height:100vh;min-height:100dvh;-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;touch-action:manipulation}
+input,textarea,select{-webkit-user-select:text;user-select:text}
+/* landscape: keep content clear of the notch and the rounded corners */
+#app{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.stage{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+/* Safari zooms the page when a focused field is smaller than 16px */
+.inp,textarea.inp,select.inp{font-size:16px}
+#pwa-tip{position:fixed;left:12px;right:12px;bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:30;max-width:26rem;margin:0 auto;padding:12px 14px;border-radius:18px;
+  background:#1e1b4bf5;border:1px solid #a78bfa77;box-shadow:0 12px 30px #000a;font-size:13.5px;line-height:1.4;display:flex;gap:10px;align-items:center}
+#pwa-tip button{padding:6px 10px;border-radius:10px;background:#ffffff1f;font-weight:700;flex-shrink:0}
